@@ -28,14 +28,15 @@ public sealed class TasksIntegrationTests
         Assert.That(getResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
 
         var antiforgeryToken = await ExtractAntiforgeryTokenAsync(getResponse);
+        using var formContent = new FormUrlEncodedContent(
+        [
+            new KeyValuePair<string, string>("__RequestVerificationToken", antiforgeryToken),
+            new KeyValuePair<string, string>("NewItem.Title", "  Integration test task  ")
+        ]);
 
         using var postResponse = await client.PostAsync(
             "/Tasks/Create",
-            new FormUrlEncodedContent(
-            [
-                new KeyValuePair<string, string>("__RequestVerificationToken", antiforgeryToken),
-                new KeyValuePair<string, string>("NewItem.Title", "  Integration test task  ")
-            ]));
+            formContent);
 
         postResponse.EnsureSuccessStatusCode();
 
