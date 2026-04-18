@@ -17,7 +17,8 @@
 2. The hook runs before every commit and scans staged changes.
 3. If `gitleaks` is available on `PATH`, the hook uses it for the scan.
 4. If `gitleaks` is not installed, the hook falls back to a built-in staged diff scan for common secrets such as MongoDB URIs with credentials, private keys, GitHub tokens, AWS keys, and password assignments.
-5. If you prefer the `pre-commit` framework, install it separately and run `pre-commit install`. The repo includes a compatible `.pre-commit-config.yaml`.
+5. The hook fails the commit if neither `pwsh` nor `powershell.exe` is available, so secret scanning cannot be bypassed by a missing runtime.
+6. If you prefer the `pre-commit` framework, install it separately and run `pre-commit install`. The repo includes a compatible `.pre-commit-config.yaml`.
 
 ## Notes
 
