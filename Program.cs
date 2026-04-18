@@ -104,3 +104,5 @@ static string BuildConnectionPreview(string connectionString)
         ? connectionString
         : $"{connectionString[..32]}...";
 }
+
+public partial class Program;
