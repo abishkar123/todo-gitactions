@@ -12,9 +12,14 @@ public sealed class TodoItemService : ITodoItemService
         _todoItemRepository = todoItemRepository;
     }
 
-    public Task<IReadOnlyList<TodoItem>> GetDashboardItemsAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<TodoItem>> GetDashboardItemsAsync(CancellationToken cancellationToken)
     {
-        return _todoItemRepository.GetAllAsync(cancellationToken);
+        var items = await _todoItemRepository.GetAllAsync(cancellationToken);
+
+        return items
+            .OrderBy(item => item.IsCompleted)
+            .ThenByDescending(item => item.CreatedAtUtc)
+            .ToArray();
     }
 
     public Task<TodoItem?> GetByIdAsync(string id, CancellationToken cancellationToken)

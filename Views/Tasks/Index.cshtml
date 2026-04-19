@@ -38,6 +38,10 @@
                 <span class="summary-card__label">Completed</span>
                 <strong class="summary-card__value">@Model.CompletedCount</strong>
             </article>
+            <article class="summary-card">
+                <span class="summary-card__label">Progress</span>
+                <strong class="summary-card__value">@Model.CompletionRatePercentage%</strong>
+            </article>
         </div>
 
         @if (Model.Items.Count == 0)

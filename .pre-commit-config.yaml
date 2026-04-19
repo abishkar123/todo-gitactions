@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: staged-secret-scan
         name: staged secret scan
-        entry: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-SecretScan.ps1
+        entry: .githooks/pre-commit
         language: system
         pass_filenames: false
         stages: [pre-commit]
