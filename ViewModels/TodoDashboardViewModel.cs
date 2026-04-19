@@ -11,4 +11,9 @@ public sealed class TodoDashboardViewModel
     public int CompletedCount => Items.Count(item => item.IsCompleted);
 
     public int OpenCount => Items.Count - CompletedCount;
+
+    public int CompletionRatePercentage =>
+        Items.Count == 0
+            ? 0
+            : (int)Math.Round((double)CompletedCount / Items.Count * 100, MidpointRounding.AwayFromZero);
 }
