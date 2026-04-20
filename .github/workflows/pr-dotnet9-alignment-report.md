@@ -3,6 +3,7 @@ name: PR .NET 9 Alignment Report
 description: Review each pull request and report whether the code changes stay aligned with .NET 9.
 on:
   pull_request:
+    branches: [gitactions]
     types: [opened, synchronize, reopened, ready_for_review]
 permissions:
   contents: read
@@ -63,6 +64,7 @@ Determine whether the pull request keeps the repository consistent with .NET 9 a
 4. Run the local verification commands when the PR touches code, projects, packages, or build configuration:
    - `dotnet --info`
    - `dotnet restore TodoList.sln`
+   - `dotnet format TodoList.sln --verify-no-changes --no-restore`
    - `dotnet build TodoList.sln --configuration Release --no-restore`
    - `dotnet test TodoList.Tests/TodoList.Tests.csproj --configuration Release --no-build`
 5. If the PR only changes docs or other non-runtime assets, skip build and test commands and say why.
@@ -73,6 +75,7 @@ Treat the pull request as `.NET 9 aligned` when all of the following are true:
 
 - Project target frameworks remain on `net9.0`, or changes do not affect framework targeting.
 - Build and test setup continues to use .NET 9 where relevant.
+- Formatting and analyzer checks enforced by `dotnet format` still pass when relevant.
 - Package or tooling changes do not obviously downgrade the repository away from .NET 9 support.
 - The diff does not introduce code that is incompatible with the repository's .NET 9 baseline.
 - Validation commands pass when they are relevant.
@@ -80,6 +83,7 @@ Treat the pull request as `.NET 9 aligned` when all of the following are true:
 Treat the pull request as `not aligned with .NET 9` when any of the following are true:
 
 - A project or workflow downgrades the target framework or SDK setup away from .NET 9.
+- The PR causes `dotnet format --verify-no-changes` to fail on relevant code or project changes.
 - A package or tooling change is incompatible with the existing .NET 9 baseline.
 - The PR introduces code changes that are likely to break on the current .NET 9 target.
 - Required validation commands fail because of the PR changes.

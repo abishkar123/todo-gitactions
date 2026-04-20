@@ -1,17 +1,19 @@
 ---
 name: .NET Dependency Compliance Report
-description: Audit .NET packages and project dependency health on a daily schedule and report actionable upgrade and security findings.
+description: Audit .NET packages and project dependency health for pull requests targeting main and report actionable upgrade and security findings.
 on:
-  schedule: daily on weekdays
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
 permissions:
   contents: read
   issues: read
   pull-requests: read
 strict: true
 engine: copilot
-run-name: ".NET dependency compliance report"
+run-name: ".NET dependency compliance report for PR #${{ github.event.pull_request.number }}"
 concurrency:
-  group: dotnet-dependency-compliance-report
+  group: dotnet-dependency-compliance-report-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 timeout-minutes: 30
 network:
@@ -23,9 +25,6 @@ tools:
     toolsets: [default, search]
   bash: true
 safe-outputs:
-  create-issue:
-    max: 1
-    footer: false
   add-comment:
     max: 1
     footer: false
@@ -37,7 +36,7 @@ steps:
 ---
 # .NET Dependency Compliance Reporter
 
-Inspect all .NET package and project dependencies used by this repository and produce a structured dependency compliance report for engineering planning.
+Inspect all .NET package and project dependencies used by this repository and produce a structured dependency compliance report for the triggering pull request targeting `main`.
 
 ## Goal
 
@@ -64,20 +63,22 @@ If some of these files do not exist, say so briefly in the report.
 
 ## Required Investigation
 
-1. Enumerate the repository's .NET projects, solution files, direct `PackageReference` items, and `ProjectReference` items.
-2. Run the local validation and inventory commands from the repository root:
+1. Fetch the pull request metadata and changed files with the GitHub tools.
+2. Enumerate the repository's .NET projects, solution files, direct `PackageReference` items, and `ProjectReference` items.
+3. Review the pull request diff to determine whether project, package, CI, or source changes affect dependency posture.
+4. Run the local validation and inventory commands from the repository root:
    - `dotnet --info`
    - `dotnet restore TodoList.sln`
    - `dotnet list TodoList.sln package --include-transitive --format json`
    - `dotnet list TodoList.sln package --outdated --include-transitive --format json`
    - `dotnet list TodoList.sln package --vulnerable --include-transitive --format json`
    - `dotnet list TodoList.sln package --deprecated --include-transitive --format json`
-3. If the solution file name changes or multiple solutions exist, detect them and audit each relevant solution instead of assuming `TodoList.sln`.
-4. Inspect project files directly so the report includes context about current target frameworks, SDK style, and direct package ownership.
-5. When any update, vulnerability, or deprecation finding exists, review the official release sources before writing conclusions:
+5. If the solution file name changes or multiple solutions exist, detect them and audit each relevant solution instead of assuming `TodoList.sln`.
+6. Inspect project files directly so the report includes context about current target frameworks, SDK style, and direct package ownership.
+7. When any update, vulnerability, or deprecation finding exists, review the official release sources before writing conclusions:
    - `https://github.com/dotnet/core/blob/main/release-notes/README.md`
    - `https://github.com/dotnet/sdk/releases`
-6. Use the GitHub tools and/or `curl` to gather evidence from those official sources. Prefer the sources most relevant to the detected version jump or SDK/runtime impact.
+8. Use the GitHub tools and/or `curl` to gather evidence from those official sources. Prefer the sources most relevant to the detected version jump or SDK/runtime impact.
 
 ## Analysis Rules
 
@@ -87,7 +88,7 @@ If some of these files do not exist, say so briefly in the report.
 - If a package has a newer patch version within the same major/minor line, classify it as a likely non-breaking upgrade unless the evidence says otherwise.
 - If a package change crosses a major version, or if the release sources indicate breaking changes, classify it as remediation required.
 - If the repository target framework, SDK expectations, or test/build workflow create friction for an upgrade, explain that friction explicitly.
-- If there are no actionable findings, state that clearly and do not create or update a GitHub issue.
+- If there are no actionable findings, state that clearly and still produce a concise PR report.
 
 ## Impact Assessment
 
@@ -139,10 +140,10 @@ If there are no actionable findings, keep the `Findings` table empty except for 
 
 ## GitHub Output Rules
 
-- If the report contains actionable findings, search for an open issue in this repository titled `.NET Dependency Compliance Report`.
-- If that issue exists, add exactly one comment containing the full report.
-- If it does not exist, create exactly one issue with title `.NET Dependency Compliance Report` and use the full report as the issue body.
-- If there are no actionable findings, do not create an issue or comment. End cleanly after producing the report in the workflow output.
+- Post exactly one PR comment containing the full report on the triggering pull request.
+- Do not create or update repository issues.
+- If the pull request is a draft, clearly label the report as preliminary.
+- If there are no actionable findings, still post the report and make that outcome explicit.
 
 ## Constraints
 
