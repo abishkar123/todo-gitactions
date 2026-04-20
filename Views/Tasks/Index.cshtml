@@ -2,90 +2,145 @@
 
 @{
     ViewData["Title"] = "Tasks";
+    var latestItem = Model.Items.FirstOrDefault();
 }
 
 <section class="dashboard">
-    <div class="panel">
-        <h1 class="panel-title">Track what matters</h1>
-        <p class="panel-copy">
-            Create tasks, mark them complete, and keep everything persisted in MongoDB.
-        </p>
+    <section class="hero-card">
+        <div class="hero-card__content">
+            <span class="hero-card__eyebrow">Operations snapshot</span>
+            <h1 class="hero-card__title">Keep today visible before it becomes urgent.</h1>
+            <p class="hero-card__copy">
+                Capture new work quickly, measure throughput at a glance, and keep completed tasks from blending into the backlog.
+            </p>
 
-        <form asp-action="Create" method="post" class="todo-form" novalidate>
-            <div asp-validation-summary="ModelOnly" class="mb-3"></div>
-
-            <div class="mb-3">
-                <label asp-for="NewItem.Title" class="form-label">New task</label>
-                <input asp-for="NewItem.Title" class="form-control" placeholder="Draft release notes" />
-                <span asp-validation-for="NewItem.Title" class="small"></span>
+            <div class="hero-card__metrics">
+                <article class="hero-metric">
+                    <span class="hero-metric__label">Completion rate</span>
+                    <strong class="hero-metric__value">@Model.CompletionRatePercentage%</strong>
+                </article>
+                <article class="hero-metric">
+                    <span class="hero-metric__label">Open tasks</span>
+                    <strong class="hero-metric__value">@Model.OpenCount</strong>
+                </article>
+                <article class="hero-metric">
+                    <span class="hero-metric__label">Latest activity</span>
+                    <strong class="hero-metric__value">@(latestItem is null ? "No tasks yet" : latestItem.CreatedAtUtc.ToLocalTime().ToString("dd MMM"))</strong>
+                </article>
             </div>
-
-            <button type="submit" class="btn btn-brand w-100 py-2">Add task</button>
-        </form>
-    </div>
-
-    <div class="panel">
-        <div class="summary-grid">
-            <article class="summary-card">
-                <span class="summary-card__label">Total tasks</span>
-                <strong class="summary-card__value">@Model.Items.Count</strong>
-            </article>
-            <article class="summary-card">
-                <span class="summary-card__label">Open</span>
-                <strong class="summary-card__value">@Model.OpenCount</strong>
-            </article>
-            <article class="summary-card">
-                <span class="summary-card__label">Completed</span>
-                <strong class="summary-card__value">@Model.CompletedCount</strong>
-            </article>
-            <article class="summary-card">
-                <span class="summary-card__label">Progress</span>
-                <strong class="summary-card__value">@Model.CompletionRatePercentage%</strong>
-            </article>
         </div>
 
-        @if (Model.Items.Count == 0)
-        {
-            <div class="empty-state">
-                <h2 class="panel-title">No tasks yet</h2>
-                <p class="mb-0">Add your first item to create the MongoDB collection and start tracking work.</p>
+        <div class="hero-card__aside">
+            <div class="progress-ring" style="--progress:@Model.CompletionRatePercentage;">
+                <div class="progress-ring__inner">
+                    <span class="progress-ring__value">@Model.CompletionRatePercentage%</span>
+                    <span class="progress-ring__label">done</span>
+                </div>
             </div>
-        }
-        else
-        {
-            <div class="task-list">
-                @foreach (var item in Model.Items)
-                {
-                    var statusClass = item.IsCompleted ? "status-pill status-pill--done" : "status-pill status-pill--open";
-                    var cardClass = item.IsCompleted ? "task-card task-card--completed" : "task-card";
-                    var toggleLabel = item.IsCompleted ? "Mark as open" : "Mark complete";
+            <p class="hero-card__aside-copy">The dashboard reflects persisted task state from MongoDB, so this view stays aligned with the real project backlog.</p>
+        </div>
+    </section>
 
-                    <article class="@cardClass">
-                        <div>
-                            <span class="@statusClass">@(item.IsCompleted ? "Completed" : "Open")</span>
-                            <h2 class="task-card__title">@item.Title</h2>
-                            <p class="task-card__meta">
-                                Added @item.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")
-                            </p>
-                        </div>
-
-                        <div class="task-card__actions">
-                            <a asp-action="Edit" asp-route-id="@item.Id" class="task-action">Edit</a>
-
-                            <form asp-action="ToggleCompleted" method="post">
-                                <input type="hidden" name="id" value="@item.Id" />
-                                <button type="submit" class="task-action">@toggleLabel</button>
-                            </form>
-
-                            <form asp-action="Delete" method="post">
-                                <input type="hidden" name="id" value="@item.Id" />
-                                <button type="submit" class="task-action task-action-danger">Delete</button>
-                            </form>
-                        </div>
-                    </article>
-                }
+    <div class="dashboard-grid">
+        <div class="panel panel--composer">
+            <div class="panel-heading">
+                <span class="panel-kicker">Add work</span>
+                <h2 class="panel-title">Create a task with one clear next step.</h2>
+                <p class="panel-copy">Short, action-oriented titles make triage and review easier when the list grows.</p>
             </div>
-        }
+
+            <form asp-action="Create" method="post" class="todo-form" novalidate>
+                <div asp-validation-summary="ModelOnly" class="mb-3"></div>
+
+                <div class="mb-3">
+                    <label asp-for="NewItem.Title" class="form-label">New task</label>
+                    <input asp-for="NewItem.Title" class="form-control" placeholder="Prepare deployment checklist" />
+                    <span asp-validation-for="NewItem.Title" class="small"></span>
+                </div>
+
+                <button type="submit" class="btn btn-brand w-100 py-2">Add task</button>
+            </form>
+
+            <div class="composer-tip">
+                <span class="composer-tip__label">Tip</span>
+                Split larger work into separate tasks so status changes stay meaningful instead of turning into vague placeholders.
+            </div>
+        </div>
+
+        <div class="panel panel--content">
+            <div class="summary-grid">
+                <article class="summary-card">
+                    <span class="summary-card__label">Total tasks</span>
+                    <strong class="summary-card__value">@Model.Items.Count</strong>
+                </article>
+                <article class="summary-card">
+                    <span class="summary-card__label">Open</span>
+                    <strong class="summary-card__value">@Model.OpenCount</strong>
+                </article>
+                <article class="summary-card">
+                    <span class="summary-card__label">Completed</span>
+                    <strong class="summary-card__value">@Model.CompletedCount</strong>
+                </article>
+                <article class="summary-card">
+                    <span class="summary-card__label">Flow</span>
+                    <strong class="summary-card__value">@(Model.OpenCount > Model.CompletedCount ? "Active" : "Balanced")</strong>
+                </article>
+            </div>
+
+            <div class="panel-heading panel-heading--list">
+                <div>
+                    <span class="panel-kicker">Backlog</span>
+                    <h2 class="panel-title">Task board</h2>
+                </div>
+                <p class="panel-copy mb-0">Review, complete, or refine work items without leaving the dashboard.</p>
+            </div>
+
+            @if (Model.Items.Count == 0)
+            {
+                <div class="empty-state">
+                    <h2 class="panel-title">No tasks yet</h2>
+                    <p class="mb-0">Add your first item to create the MongoDB collection and start tracking work.</p>
+                </div>
+            }
+            else
+            {
+                <div class="task-list">
+                    @foreach (var item in Model.Items)
+                    {
+                        var statusClass = item.IsCompleted ? "status-pill status-pill--done" : "status-pill status-pill--open";
+                        var cardClass = item.IsCompleted ? "task-card task-card--completed" : "task-card";
+                        var toggleLabel = item.IsCompleted ? "Reopen" : "Complete";
+
+                        <article class="@cardClass">
+                            <div class="task-card__content">
+                                <div class="task-card__header">
+                                    <span class="@statusClass">@(item.IsCompleted ? "Completed" : "Open")</span>
+                                    <span class="task-card__timestamp">@item.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy")</span>
+                                </div>
+                                <h3 class="task-card__title">@item.Title</h3>
+                                <p class="task-card__meta">
+                                    Added @item.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")
+                                </p>
+                            </div>
+
+                            <div class="task-card__actions">
+                                <a asp-action="Edit" asp-route-id="@item.Id" class="task-action">Edit</a>
+
+                                <form asp-action="ToggleCompleted" method="post">
+                                    <input type="hidden" name="id" value="@item.Id" />
+                                    <button type="submit" class="task-action">@toggleLabel</button>
+                                </form>
+
+                                <form asp-action="Delete" method="post">
+                                    <input type="hidden" name="id" value="@item.Id" />
+                                    <button type="submit" class="task-action task-action-danger">Delete</button>
+                                </form>
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+        </div>
     </div>
 </section>
 
