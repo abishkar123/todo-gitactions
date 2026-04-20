@@ -5,45 +5,64 @@
 }
 
 <section class="dashboard">
-    <div class="panel">
-        <a asp-action="Index" class="task-action">&larr; Back to tasks</a>
-        <h1 class="panel-title mt-3">Edit task</h1>
-        <p class="panel-copy">
-            Update the task title and keep the rest of the task details unchanged.
-        </p>
+    <section class="hero-card hero-card--compact">
+        <div class="hero-card__content">
+            <a asp-action="Index" class="task-action task-action--back">Back to tasks</a>
+            <span class="hero-card__eyebrow">Task refinement</span>
+            <h1 class="hero-card__title">Update the wording without losing task history.</h1>
+            <p class="hero-card__copy">
+                This keeps the task identity stable while letting you tighten scope, clarify ownership, or make the next step more concrete.
+            </p>
+        </div>
+    </section>
 
-        <form asp-action="Edit" method="post" class="todo-form" novalidate>
-            <input asp-for="Item.Id" type="hidden" />
-
-            <div asp-validation-summary="ModelOnly" class="mb-3"></div>
-
-            <div class="mb-3">
-                <label asp-for="Item.Title" class="form-label">Task title</label>
-                <input asp-for="Item.Title" class="form-control" placeholder="Revise sprint backlog" />
-                <span asp-validation-for="Item.Title" class="small"></span>
+    <div class="dashboard-grid dashboard-grid--edit">
+        <div class="panel panel--composer">
+            <div class="panel-heading">
+                <span class="panel-kicker">Edit details</span>
+                <h2 class="panel-title">Revise the task title</h2>
+                <p class="panel-copy">Use clear, specific wording so the task remains understandable during review and handoff.</p>
             </div>
 
-            <div class="d-flex gap-2">
-                <button type="submit" class="btn btn-brand px-4">Save changes</button>
-                <a asp-action="Index" class="btn btn-outline-secondary px-4">Cancel</a>
-            </div>
-        </form>
-    </div>
+            <form asp-action="Edit" method="post" class="todo-form" novalidate>
+                <input asp-for="Item.Id" type="hidden" />
 
-    <div class="panel">
-        <h2 class="panel-title">Current status</h2>
+                <div asp-validation-summary="ModelOnly" class="mb-3"></div>
 
-        <article class="task-card @(Model.IsCompleted ? "task-card--completed" : string.Empty)">
-            <div>
-                <span class="@(Model.IsCompleted ? "status-pill status-pill--done" : "status-pill status-pill--open")">
-                    @(Model.IsCompleted ? "Completed" : "Open")
-                </span>
-                <h2 class="task-card__title">@Model.Item.Title</h2>
-                <p class="task-card__meta">
-                    Added @Model.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")
-                </p>
+                <div class="mb-3">
+                    <label asp-for="Item.Title" class="form-label">Task title</label>
+                    <input asp-for="Item.Title" class="form-control" placeholder="Revise sprint backlog" />
+                    <span asp-validation-for="Item.Title" class="small"></span>
+                </div>
+
+                <div class="edit-actions">
+                    <button type="submit" class="btn btn-brand px-4">Save changes</button>
+                    <a asp-action="Index" class="btn btn-outline-secondary px-4">Cancel</a>
+                </div>
+            </form>
+        </div>
+
+        <div class="panel panel--content">
+            <div class="panel-heading">
+                <span class="panel-kicker">Current state</span>
+                <h2 class="panel-title">Existing task snapshot</h2>
             </div>
-        </article>
+
+            <article class="task-card @(Model.IsCompleted ? "task-card--completed" : string.Empty)">
+                <div class="task-card__content">
+                    <div class="task-card__header">
+                        <span class="@(Model.IsCompleted ? "status-pill status-pill--done" : "status-pill status-pill--open")">
+                            @(Model.IsCompleted ? "Completed" : "Open")
+                        </span>
+                        <span class="task-card__timestamp">@Model.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy")</span>
+                    </div>
+                    <h2 class="task-card__title">@Model.Item.Title</h2>
+                    <p class="task-card__meta">
+                        Added @Model.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")
+                    </p>
+                </div>
+            </article>
+        </div>
     </div>
 </section>
 
