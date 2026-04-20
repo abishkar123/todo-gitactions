@@ -2,7 +2,6 @@
 
 @{
     ViewData["Title"] = "Tasks";
-    var latestItem = Model.Items.FirstOrDefault();
 }
 
 <section class="dashboard">
@@ -25,7 +24,7 @@
                 </article>
                 <article class="hero-metric">
                     <span class="hero-metric__label">Latest activity</span>
-                    <strong class="hero-metric__value">@(latestItem is null ? "No tasks yet" : latestItem.CreatedAtUtc.ToLocalTime().ToString("dd MMM"))</strong>
+                    <strong class="hero-metric__value">@(Model.LatestCreatedAtUtc is null ? "No tasks yet" : Model.LatestCreatedAtUtc.Value.ToLocalTime().ToString("dd MMM"))</strong>
                 </article>
             </div>
         </div>

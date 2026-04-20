@@ -8,6 +8,11 @@ public sealed class TodoDashboardViewModel
 
     public IReadOnlyList<TodoItem> Items { get; init; } = [];
 
+    public DateTime? LatestCreatedAtUtc =>
+        Items.Count == 0
+            ? null
+            : Items.Max(item => item.CreatedAtUtc);
+
     public int CompletedCount => Items.Count(item => item.IsCompleted);
 
     public int OpenCount => Items.Count - CompletedCount;
