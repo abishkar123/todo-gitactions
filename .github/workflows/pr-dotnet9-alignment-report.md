@@ -3,6 +3,7 @@ name: PR .NET 9 Alignment Report
 description: Review each pull request and report whether the code changes stay aligned with .NET 9.
 on:
   pull_request:
+    branches: [gitactions]
     types: [opened, synchronize, reopened, ready_for_review]
 permissions:
   contents: read
