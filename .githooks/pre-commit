@@ -1,3 +1,98 @@
 #!/bin/sh
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(dirname "$0")/../scripts/Invoke-SecretScan.ps1"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+SCAN_SCRIPT="$SCRIPT_DIR/../scripts/Invoke-SecretScan.ps1"
+
+if command -v gitleaks >/dev/null 2>&1; then
+    exec gitleaks protect --staged --redact --verbose
+fi
+
+if command -v pwsh >/dev/null 2>&1; then
+    exec pwsh -NoProfile -File "$SCAN_SCRIPT"
+fi
+
+if command -v powershell.exe >/dev/null 2>&1; then
+    exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$SCAN_SCRIPT"
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+    exec python3 - <<'PY'
+import re
+import subprocess
+import sys
+
+EXCLUDED_PREFIXES = (
+    "wwwroot/lib/",
+    "artifacts/verify/",
+    "bin/",
+    "obj/",
+)
+
+PATTERNS = (
+    ("MongoDB connection string with embedded credentials", r"mongodb(\+srv)?://(?!<)[^/\s:]+:(?!<)[^@\s]+@"),
+    ("Private key block", r"-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"),
+    ("GitHub token", r"gh[pousr]_[A-Za-z0-9]{20,}"),
+    ("AWS access key", r"AKIA[0-9A-Z]{16}"),
+    ("Password assignment", r"""(?i)(password|pwd)\s*[:=]\s*["']?(?!<|changeme|example|your-)[^;"',\s]+"""),
+)
+
+def run_git(args: list[str]) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.exit(result.returncode)
+    return result.stdout
+
+staged_paths = [
+    path.strip()
+    for path in run_git(["diff", "--cached", "--name-only", "--diff-filter=ACMR"]).splitlines()
+    if path.strip()
+]
+scannable_paths = [
+    path for path in staged_paths
+    if not path.replace("\\", "/").startswith(EXCLUDED_PREFIXES)
+]
+
+if not scannable_paths:
+    print("Secret scan passed.")
+    sys.exit(0)
+
+diff_output = run_git(["diff", "--cached", "--unified=0", "--no-color", "--no-ext-diff", "--", *scannable_paths])
+added_lines = [
+    line[1:]
+    for line in diff_output.splitlines()
+    if line.startswith("+") and not line.startswith("+++")
+]
+
+if not added_lines:
+    sys.exit(0)
+
+findings: list[str] = []
+for line in added_lines:
+    for name, pattern in PATTERNS:
+        if re.search(pattern, line):
+            findings.append(f"{name}: {line.strip()}")
+            break
+
+if not findings:
+    print("Secret scan passed.")
+    sys.exit(0)
+
+print("Commit blocked: potential secrets detected in staged changes.")
+print("")
+for finding in findings:
+    print(f"- {finding}")
+print("")
+print("Fix the staged content, or move the value into user-secrets or environment variables.")
+print("Install gitleaks and keep it on PATH for stronger secret scanning coverage.")
+sys.exit(1)
+PY
+fi
+
+echo "pre-commit hook failed: no secret-scan runtime is installed. Install gitleaks, python3, pwsh, or powershell.exe before committing." >&2
+exit 1

@@ -32,8 +32,5 @@
 - [ ] Auth / permission impact reviewed
 - [ ] No sensitive data exposure introduced
 
-## Deployment Notes
-- **Deployment steps:**  
-- **Feature flag required:** Yes / No
-- **Post-deployment checks:**  
+
 

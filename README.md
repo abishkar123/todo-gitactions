@@ -16,8 +16,10 @@
    - `git config core.hooksPath .githooks`
 2. The hook runs before every commit and scans staged changes.
 3. If `gitleaks` is available on `PATH`, the hook uses it for the scan.
-4. If `gitleaks` is not installed, the hook falls back to a built-in staged diff scan for common secrets such as MongoDB URIs with credentials, private keys, GitHub tokens, AWS keys, and password assignments.
-5. If you prefer the `pre-commit` framework, install it separately and run `pre-commit install`. The repo includes a compatible `.pre-commit-config.yaml`.
+4. If `gitleaks` is not installed, the hook falls back to a built-in staged diff scan using `python3` when available, or the existing PowerShell script when `pwsh`/`powershell.exe` is available.
+5. The fallback scan checks common secrets such as MongoDB URIs with credentials, private keys, GitHub tokens, AWS keys, and password assignments.
+6. The hook fails the commit if none of `gitleaks`, `python3`, `pwsh`, or `powershell.exe` is available, so secret scanning cannot be bypassed by a missing runtime.
+7. If you prefer the `pre-commit` framework, install it separately and run `pre-commit install`. The repo includes a compatible `.pre-commit-config.yaml` that calls the same portable hook entrypoint.
 
 ## Notes
 

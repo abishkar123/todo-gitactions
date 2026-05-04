@@ -62,4 +62,30 @@ public sealed class TodoItemServiceTests
         repositoryMock.Verify(repository => repository.UpdateTitleAsync(input.Id, "Updated title", It.IsAny<CancellationToken>()), Times.Once);
         repositoryMock.VerifyNoOtherCalls();
     }
+
+    [Test]
+    public async Task GetDashboardItemsAsync_PrioritizesOpenItems_ThenNewestFirst()
+    {
+        var repositoryMock = new Mock<ITodoItemRepository>(MockBehavior.Strict);
+        var now = DateTime.UtcNow;
+        var items = new[]
+        {
+            new TodoItem { Id = "1", Title = "Completed recent", IsCompleted = true, CreatedAtUtc = now.AddMinutes(-5) },
+            new TodoItem { Id = "2", Title = "Open older", IsCompleted = false, CreatedAtUtc = now.AddHours(-2) },
+            new TodoItem { Id = "3", Title = "Open newest", IsCompleted = false, CreatedAtUtc = now.AddMinutes(-1) },
+            new TodoItem { Id = "4", Title = "Completed oldest", IsCompleted = true, CreatedAtUtc = now.AddDays(-1) }
+        };
+
+        repositoryMock
+            .Setup(repository => repository.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(items);
+
+        var service = new TodoItemService(repositoryMock.Object);
+
+        var result = await service.GetDashboardItemsAsync(CancellationToken.None);
+
+        Assert.That(result.Select(item => item.Id), Is.EqualTo(new[] { "3", "2", "1", "4" }));
+        repositoryMock.Verify(repository => repository.GetAllAsync(It.IsAny<CancellationToken>()), Times.Once);
+        repositoryMock.VerifyNoOtherCalls();
+    }
 }
