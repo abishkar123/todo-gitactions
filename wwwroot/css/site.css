@@ -129,6 +129,7 @@ body {
   box-shadow: var(--shadow);
   overflow: hidden;
   position: relative;
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
 }
 
 .hero-card::after {
@@ -221,6 +222,30 @@ body {
   text-align: center;
 }
 
+.hero-card__note {
+  display: grid;
+  gap: 0.2rem;
+  max-width: 15rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  background: rgba(255, 247, 240, 0.1);
+  border: 1px solid rgba(255, 247, 240, 0.14);
+}
+
+.hero-card__note-label {
+  color: rgba(255, 247, 240, 0.72);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-card__note-copy {
+  color: rgba(255, 247, 240, 0.9);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
 .progress-ring {
   --ring-color: conic-gradient(from 180deg, #f9d5b5 0deg, #fff1df calc(var(--progress) * 1%), rgba(255, 247, 240, 0.18) 0);
   display: grid;
@@ -260,6 +285,7 @@ body {
   background: var(--panel-background);
   box-shadow: var(--shadow);
   backdrop-filter: blur(12px);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
 }
 
 .panel--composer {
@@ -322,6 +348,7 @@ body {
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.74);
   border: 1px solid rgba(56, 44, 30, 0.07);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 .summary-card__label {
@@ -407,6 +434,8 @@ body {
   border-radius: 1.3rem;
   background: rgba(255, 255, 255, 0.8);
   border: 1px solid rgba(56, 44, 30, 0.08);
+  box-shadow: 0 12px 24px rgba(69, 44, 24, 0.05);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
 .task-card--completed {
@@ -462,16 +491,34 @@ body {
   border: none;
   background: none;
   padding: 0.45rem 0.8rem;
+  min-height: 2.3rem;
   border-radius: 999px;
   color: var(--brand-dark);
   font-weight: 600;
   text-decoration: none;
+  border: 1px solid transparent;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .task-action:hover {
   color: var(--brand-dark);
   background: rgba(18, 91, 82, 0.08);
+}
+
+.task-action--primary {
+  background: rgba(18, 91, 82, 0.08);
+  border-color: rgba(18, 91, 82, 0.12);
+}
+
+.task-action--secondary {
+  background: rgba(36, 24, 15, 0.06);
+  border-color: rgba(36, 24, 15, 0.08);
+}
+
+.task-action--secondary:hover,
+.task-action--primary:hover {
+  color: var(--brand-dark);
+  background: rgba(18, 91, 82, 0.12);
 }
 
 .task-action--back {
@@ -519,6 +566,18 @@ body {
   background: rgba(255, 255, 255, 0.55);
 }
 
+.hero-card:hover,
+.panel:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 28px 76px rgba(70, 43, 23, 0.14);
+}
+
+.summary-card:hover,
+.task-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 34px rgba(69, 44, 24, 0.08);
+}
+
 .edit-actions {
   display: flex;
   gap: 0.75rem;
@@ -557,6 +616,10 @@ body {
     max-width: none;
     text-align: left;
   }
+
+  .hero-card__note {
+    max-width: none;
+  }
 }
 
 @media (max-width: 767.98px) {
@@ -568,8 +631,20 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .task-card__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+  }
+
   .task-card__actions {
     justify-content: flex-start;
+  }
+
+  .task-action {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
   }
 
   .app-header {
@@ -586,5 +661,9 @@ body {
 
   .app-brand {
     font-size: clamp(2.15rem, 10vw, 3rem);
+  }
+
+  .hero-card__note {
+    padding: 0.8rem 0.9rem;
   }
 }
