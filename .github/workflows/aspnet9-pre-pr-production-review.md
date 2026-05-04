@@ -220,6 +220,32 @@ For pull requests, post exactly one comment with:
 
 **Rollback summary:** [explain rollback path and any caveats]
 
+## 11. Inline Review Comments Payload
+
+When a finding has exact file/line evidence, include a machine-readable JSON code block named `review_comments` so the workflow can post GitHub-style inline review comments on the changed code.
+
+- Include one object per inline comment.
+- Use `side: RIGHT` unless the finding explicitly points to removed code.
+- Keep each `body` short, specific, and actionable.
+- Only include comments that are backed by exact file and line evidence.
+- If there are no suitable inline comments, use an empty array.
+
+```json
+{
+  "review_comments": [
+    {
+      "path": "Controllers/TasksController.cs",
+      "line": 84,
+      "side": "RIGHT",
+      "severity": "High",
+      "category": "stability",
+      "classification": "immediate remediation required",
+      "body": "This change alters the failure path without calling out the behavior change. Keep the previous guard or document the new runtime behavior."
+    }
+  ]
+}
+```
+
 ---
 
 **Not an approval.** This review identifies production-impact risks and missing validation before human and Copilot review. Author must address blockers and provide missing evidence before final review.
@@ -277,4 +303,5 @@ For push events without PR context:
    - Assess production impact
    - Classify severity and risk
 5. Apply decision rules
-6. Generate and post review comment (PR context) or log output (push context)
+6. Generate the markdown review report and inline review comment payload
+7. Post review output (PR context) or log output (push context)

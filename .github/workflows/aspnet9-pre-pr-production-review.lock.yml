@@ -1218,6 +1218,179 @@ jobs:
             setupGlobals(core, github, context, exec, io, getOctokit);
             const { main } = require('${{ runner.temp }}/gh-aw/actions/safe_output_handler_manager.cjs');
             await main();
+      - name: Write review report file and inline review comments
+        if: always()
+        id: write-review-artifacts
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        env:
+          GH_AW_AGENT_OUTPUT: ${{ steps.setup-agent-output-env.outputs.GH_AW_AGENT_OUTPUT }}
+          GH_AW_SAFE_OUTPUTS_JSONL: /tmp/gh-aw/safeoutputs.jsonl
+          GH_AW_REPORT_PATH: /tmp/gh-aw/aspnet9-pre-pr-production-review-report.md
+        with:
+          github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io, getOctokit);
+
+            function readJsonFile(filePath) {
+              try {
+                if (!filePath || !fs.existsSync(filePath)) {
+                  return null;
+                }
+                return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+              } catch (error) {
+                core.warning(`Failed to parse JSON file ${filePath}: ${error.message}`);
+                return null;
+              }
+            }
+
+            function readJsonLines(filePath) {
+              if (!filePath || !fs.existsSync(filePath)) {
+                return [];
+              }
+
+              return fs.readFileSync(filePath, 'utf8')
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .flatMap((line) => {
+                  try {
+                    return [JSON.parse(line)];
+                  } catch {
+                    return [];
+                  }
+                });
+            }
+
+            function collectStrings(value, bucket) {
+              if (!value) {
+                return;
+              }
+              if (typeof value === 'string') {
+                const trimmed = value.trim();
+                if (trimmed) {
+                  bucket.push(trimmed);
+                }
+                return;
+              }
+              if (Array.isArray(value)) {
+                for (const item of value) {
+                  collectStrings(item, bucket);
+                }
+                return;
+              }
+              if (typeof value === 'object') {
+                for (const nested of Object.values(value)) {
+                  collectStrings(nested, bucket);
+                }
+              }
+            }
+
+            function extractBodies(source) {
+              const bodies = [];
+              collectStrings(source, bodies);
+              return bodies.filter((body) =>
+                body.startsWith('# ASP.NET 9 Pre-PR Production Review') ||
+                body.includes('## 1. Submission Decision') ||
+                body.includes('## 4. Findings')
+              );
+            }
+
+            function parseReviewComments(reportBody) {
+              const comments = [];
+              const blocks = [...reportBody.matchAll(/```json\s*([\s\S]*?)\s*```/gi)];
+
+              for (const match of blocks) {
+                const jsonText = match[1].trim();
+                try {
+                  const parsed = JSON.parse(jsonText);
+                  const entries = Array.isArray(parsed)
+                    ? parsed
+                    : parsed.review_comments || parsed.reviewComments || parsed.comments || [];
+
+                  for (const entry of entries) {
+                    if (!entry || typeof entry !== 'object') {
+                      continue;
+                    }
+                    const pathValue = typeof entry.path === 'string' ? entry.path.trim() : '';
+                    const lineValue = Number(entry.line);
+                    const bodyValue = typeof entry.body === 'string' ? entry.body.trim() : '';
+                    if (!pathValue || !Number.isInteger(lineValue) || lineValue < 1 || !bodyValue) {
+                      continue;
+                    }
+                    comments.push({
+                      path: pathValue,
+                      line: lineValue,
+                      side: String(entry.side || 'RIGHT').toUpperCase() === 'LEFT' ? 'LEFT' : 'RIGHT',
+                      body: bodyValue
+                    });
+                  }
+                } catch (error) {
+                  core.warning(`Skipping malformed review_comments JSON: ${error.message}`);
+                }
+              }
+
+              return comments;
+            }
+
+            const sources = [
+              process.env.GH_AW_AGENT_OUTPUT,
+              process.env.GH_AW_SAFE_OUTPUTS_JSONL,
+              '/tmp/gh-aw/agent_output.json',
+              '/tmp/gh-aw/safeoutputs.jsonl'
+            ];
+
+            let reportBody = '';
+            for (const source of sources) {
+              const parsed = source && source.endsWith('.jsonl') ? readJsonLines(source) : readJsonFile(source);
+              const bodies = extractBodies(parsed);
+              if (bodies.length > 0) {
+                reportBody = bodies[0];
+                break;
+              }
+            }
+
+            if (!reportBody) {
+              core.warning('No review report body was found in the agent output.');
+              reportBody = '# ASP.NET 9 Pre-PR Production Review\n\nNo report body was found in the agent output.';
+            }
+
+            fs.mkdirSync(path.dirname(process.env.GH_AW_REPORT_PATH), { recursive: true });
+            fs.writeFileSync(process.env.GH_AW_REPORT_PATH, reportBody, 'utf8');
+
+            if (context.eventName !== 'pull_request') {
+              return;
+            }
+
+            const reviewComments = parseReviewComments(reportBody);
+            if (reviewComments.length === 0) {
+              core.info('No inline review comments were requested in the report payload.');
+              return;
+            }
+
+            try {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                commit_id: context.payload.pull_request.head.sha,
+                event: 'COMMENT',
+                body: 'Automated production review findings with inline comments.',
+                comments: reviewComments
+              });
+              core.info(`Created PR review with ${reviewComments.length} inline comment(s).`);
+            } catch (error) {
+              core.warning(`Failed to create inline review comments: ${error.message}`);
+            }
+      - name: Upload review report artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aspnet9-pre-pr-production-review-report
+          path: /tmp/gh-aw/aspnet9-pre-pr-production-review-report.md
+          if-no-files-found: ignore
       - name: Upload Safe Outputs Items
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1227,4 +1400,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-
