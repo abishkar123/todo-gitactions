@@ -11,6 +11,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: validate-tenant-manifest
+        run: |
+          MANIFEST=".platform/tenants/dev/bidirectional.yml"
+          [ ! -f "$MANIFEST" ] && echo "Tenant manifest not found." && exit 1
+          FILE_TENANT=$(yq '.tenantId' "$MANIFEST")
+          FILE_ENV=$(yq '.environment' "$MANIFEST")
+          [ "$FILE_TENANT" != "bidirectional" ] && echo "Tenant mismatch." && exit 1
+          [ "$FILE_ENV" != "dev" ] && echo "Environment mismatch." && exit 1
+          echo "Manifest validated: $FILE_TENANT / $FILE_ENV"
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
@@ -30,8 +40,14 @@ jobs:
           curl -sLO https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64
           sudo install cosign-linux-amd64 /usr/local/bin/cosign
 
-      - name: cosign-keyless-sign-sbom
+      - name: sign-artifact
         run: |
+          ARTIFACT_DIGEST=$(sha256sum -r ./publish | sha256sum | awk '{print $1}')
+          echo "$ARTIFACT_DIGEST" > artifacts/artifact.digest
+          cosign sign-blob \
+            --yes \
+            artifacts/artifact.digest \
+            > artifacts/artifact.digest.sig
           cosign sign-blob \
             --yes \
             artifacts/sbom/bom.json \
@@ -89,6 +105,8 @@ jobs:
             ./publish
             ./artifacts/sbom/bom.json
             ./artifacts/sbom/bom.json.sig
+            ./artifacts/artifact.digest
+            ./artifacts/artifact.digest.sig
             ./artifacts/provenance/slsa-provenance.json
             ./artifacts/provenance/slsa-provenance.json.sig
 
@@ -109,6 +127,21 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID_DEV }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID_DEV }}
+
+      - name: validate-keyvault-access
+        run: |
+          az keyvault show --name kv-bidirectional-dev --query "name" --output tsv \
+            || { echo "Key Vault access failed." && exit 1; }
+          echo "Key Vault access confirmed: kv-bidirectional-dev"
+
+      - name: supply-chain-gate
+        run: |
+          [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
+          [ ! -s "artifacts/sbom/bom.json.sig" ] && echo "SBOM signature missing." && exit 1
+          [ ! -s "artifacts/artifact.digest.sig" ] && echo "Artifact signature missing." && exit 1
+          [ ! -s "artifacts/provenance/slsa-provenance.json" ] && echo "Provenance missing." && exit 1
+          [ ! -s "artifacts/provenance/slsa-provenance.json.sig" ] && echo "Provenance signature missing." && exit 1
+          echo "Supply chain gate passed."
 
       - name: policy-gate
         run: |
