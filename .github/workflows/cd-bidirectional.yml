@@ -49,14 +49,11 @@ jobs:
         run: |
           mkdir -p artifacts
           ARTIFACT_DIGEST=$(find ./publish -type f -exec sha256sum {} \; | sha256sum | awk '{print $1}')
-          echo "$ARTIFACT_DIGEST" > artifacts/artifact.digest
+          echo -n "$ARTIFACT_DIGEST" > artifacts/artifact.digest
+          echo -n "$ARTIFACT_DIGEST" | cosign sign-blob --yes - > artifacts/artifact.digest.sig
           cosign sign-blob \
             --yes \
-            artifacts/artifact.digest \
-            > artifacts/artifact.digest.sig
-          cosign sign-blob \
-            --yes \
-            artifacts/sbom/bom.json \
+            --input-file artifacts/sbom/bom.json \
             > artifacts/sbom/bom.json.sig
 
       - name: generate-slsa-provenance
