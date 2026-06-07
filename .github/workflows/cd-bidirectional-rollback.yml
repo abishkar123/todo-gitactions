@@ -31,8 +31,11 @@ jobs:
               --target-slot production
 
       - name: log-rollback-event
+        env:
+          ROLLBACK_REASON: ${{ github.event.inputs.reason }}
         run: |
-          echo "{\"event\":\"rollback\",\"actor\":\"${{ github.actor }}\",\"reason\":\"${{ github.event.inputs.reason }}\",\"run\":\"${{ github.run_id }}\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+          ESCAPED_REASON=$(python3 -c "import json, os; print(json.dumps(os.environ['ROLLBACK_REASON']))")
+          echo "{\"event\":\"rollback\",\"actor\":\"${{ github.actor }}\",\"reason\":${ESCAPED_REASON},\"run\":\"${{ github.run_id }}\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
             > rollback-event.json
           az storage blob upload \
             --account-name stbidirectionalaudit \

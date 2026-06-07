@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -42,7 +45,8 @@ jobs:
 
       - name: sign-artifact
         run: |
-          ARTIFACT_DIGEST=$(sha256sum -r ./publish | sha256sum | awk '{print $1}')
+          mkdir -p artifacts
+          ARTIFACT_DIGEST=$(find ./publish -type f -exec sha256sum {} \; | sha256sum | awk '{print $1}')
           echo "$ARTIFACT_DIGEST" > artifacts/artifact.digest
           cosign sign-blob \
             --yes \
@@ -56,13 +60,14 @@ jobs:
       - name: generate-slsa-provenance
         run: |
           mkdir -p artifacts/provenance
+          ARTIFACT_DIGEST=$(cat artifacts/artifact.digest)
           echo "{
             \"_type\": \"https://in-toto.io/Statement/v0.1\",
             \"predicateType\": \"https://slsa.dev/provenance/v0.2\",
             \"subject\": [{
               \"name\": \"app-bidirectional-${{ github.sha }}\",
               \"digest\": {
-                \"sha256\": \"$(sha256sum ./artifacts/sbom/bom.json | awk '{print $1}')\"
+                \"sha256\": \"$ARTIFACT_DIGEST\"
               }
             }],
             \"predicate\": {
@@ -138,9 +143,21 @@ jobs:
         run: |
           [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
           [ ! -s "artifacts/sbom/bom.json.sig" ] && echo "SBOM signature missing." && exit 1
+          [ ! -s "artifacts/artifact.digest" ] && echo "Artifact digest missing." && exit 1
           [ ! -s "artifacts/artifact.digest.sig" ] && echo "Artifact signature missing." && exit 1
           [ ! -s "artifacts/provenance/slsa-provenance.json" ] && echo "Provenance missing." && exit 1
           [ ! -s "artifacts/provenance/slsa-provenance.json.sig" ] && echo "Provenance signature missing." && exit 1
+          EXPECTED_DIGEST=$(cat artifacts/artifact.digest)
+          cosign verify-blob \
+            --signature artifacts/artifact.digest.sig \
+            --certificate-identity-regexp '.*' \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            <(echo -n "$EXPECTED_DIGEST") || { echo "Artifact signature verification failed." && exit 1; }
+          cosign verify-blob \
+            --signature artifacts/sbom/bom.json.sig \
+            --certificate-identity-regexp '.*' \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            artifacts/sbom/bom.json || { echo "SBOM signature verification failed." && exit 1; }
           echo "Supply chain gate passed."
 
       - name: policy-gate

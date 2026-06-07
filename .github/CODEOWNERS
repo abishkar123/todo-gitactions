@@ -1,0 +1,29 @@
+# Solution and project files
+*.sln @Abishkarrai
+*.csproj @Abishkarrai
+*.props @Abishkarrai
+*.targets @Abishkarrai
+
+# Application code
+/*.cs @Abishkarrai
+/Configuration/ @Abishkarrai
+/Controllers/ @Abishkarrai
+/Models/ @Abishkarrai
+/Repositories/ @Abishkarrai
+/Services/ @Abishkarrai
+/ViewModels/ @Abishkarrai
+/Views/ @Abishkarrai
+/wwwroot/ @Abishkarrai
+/Properties/ @Abishkarrai
+
+# Tests
+/TodoList.Tests/ @Abishkarrai
+
+# Configuration and tooling
+/.github/ @Abishkarrai
+/.githooks/ @Abishkarrai
+/scripts/ @Abishkarrai
+/appsettings*.json @Abishkarrai
+/.gitignore @Abishkarrai
+/.pre-commit-config.yaml @Abishkarrai
+/README.md @Abishkarrai
