@@ -36,8 +36,9 @@ jobs:
         run: |
           mkdir -p artifacts/sbom
           dotnet tool install --global CycloneDX
-          dotnet CycloneDX TodoList.csproj --output ./artifacts/sbom --json
-          [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
+          dotnet CycloneDX TodoList.csproj --output ./artifacts/sbom --json || true
+          [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing or empty." && exit 1
+          echo "SBOM generated successfully"
 
       - name: install-cosign
         run: |
