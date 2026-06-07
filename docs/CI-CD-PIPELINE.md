@@ -93,11 +93,11 @@ Build **fails** if:
 ### Artifact Signatures
 
 #### Cosign Keyless Signing
-Every artifact is signed without storing keys in the repository:
+Every artifact is signed without storing keys in the repository. Cosign outputs `.bundle` files (containing the signature, certificate, and transparency log entry in one JSON envelope):
 
-1. **Artifact digest signature** → `artifacts/artifact.digest.sig`
-2. **SBOM signature** → `artifacts/sbom/bom.json.sig`
-3. **Provenance signature** → `artifacts/provenance/slsa-provenance.json.sig`
+1. **Artifact digest bundle** → `artifacts/artifact.digest.bundle`
+2. **SBOM bundle** → `artifacts/sbom/bom.json.bundle`
+3. **Provenance bundle** → `artifacts/provenance/slsa-provenance.json.bundle`
 
 **How it works:**
 - Cosign uses OIDC federation to GitHub's OIDC provider
@@ -111,19 +111,25 @@ Every artifact is signed without storing keys in the repository:
 ARTIFACT_DIGEST=$(find ./publish -type f -exec sha256sum {} \; | sha256sum | awk '{print $1}')
 ```
 
+**Signing (use `--bundle`, not the deprecated `--output-signature`):**
+```bash
+cosign sign-blob --yes --bundle artifacts/artifact.digest.bundle artifacts/artifact.digest
+cosign sign-blob --yes --bundle artifacts/sbom/bom.json.bundle artifacts/sbom/bom.json
+cosign sign-blob --yes --bundle artifacts/provenance/slsa-provenance.json.bundle artifacts/provenance/slsa-provenance.json
+```
+
 **Deployment-time Verification:**
 ```bash
-# Verify artifact digest signature
-EXPECTED_DIGEST=$(cat artifacts/artifact.digest)
+# Verify artifact digest bundle
 cosign verify-blob \
-  --signature artifacts/artifact.digest.sig \
+  --bundle artifacts/artifact.digest.bundle \
   --certificate-identity-regexp '.*' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  <(echo -n "$EXPECTED_DIGEST")
+  artifacts/artifact.digest
 
-# Verify SBOM signature
+# Verify SBOM bundle
 cosign verify-blob \
-  --signature artifacts/sbom/bom.json.sig \
+  --bundle artifacts/sbom/bom.json.bundle \
   --certificate-identity-regexp '.*' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   artifacts/sbom/bom.json
@@ -245,18 +251,17 @@ deploy-dev:
    ```bash
    # Verify all artifacts are present
    [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
-   [ ! -s "artifacts/artifact.digest.sig" ] && echo "Artifact signature missing." && exit 1
-   
-   # Verify signatures with Cosign
-   EXPECTED_DIGEST=$(cat artifacts/artifact.digest)
+   [ ! -s "artifacts/artifact.digest.bundle" ] && echo "Artifact bundle missing." && exit 1
+
+   # Verify signatures with Cosign (--bundle, not --signature)
    cosign verify-blob \
-     --signature artifacts/artifact.digest.sig \
+     --bundle artifacts/artifact.digest.bundle \
      --certificate-identity-regexp '.*' \
      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-     <(echo -n "$EXPECTED_DIGEST") || exit 1
-     
+     artifacts/artifact.digest || exit 1
+
    cosign verify-blob \
-     --signature artifacts/sbom/bom.json.sig \
+     --bundle artifacts/sbom/bom.json.bundle \
      --certificate-identity-regexp '.*' \
      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
      artifacts/sbom/bom.json || exit 1
@@ -500,11 +505,11 @@ az role assignment create \
 Build Job
 ├─ dotnet publish → ./publish
 ├─ Compute artifact digest → ./artifacts/artifact.digest
-├─ Cosign sign → ./artifacts/artifact.digest.sig
+├─ Cosign sign → ./artifacts/artifact.digest.bundle
 ├─ CycloneDX SBOM → ./artifacts/sbom/bom.json
-├─ Cosign sign → ./artifacts/sbom/bom.json.sig
+├─ Cosign sign → ./artifacts/sbom/bom.json.bundle
 ├─ SLSA provenance (bound to artifact digest) → ./artifacts/provenance/slsa-provenance.json
-├─ Cosign sign → ./artifacts/provenance/slsa-provenance.json.sig
+├─ Cosign sign → ./artifacts/provenance/slsa-provenance.json.bundle
 └─ Upload artifact: app-bidirectional-<sha>
         ↓
    Deploy-Dev Job (downloads artifact)
@@ -676,13 +681,7 @@ Protected branch rules enforce code owner review on PRs to `development`.
 
 ## Dependency Compliance
 
-**File:** `.github/workflows/dotnet-dependency-compliance-report.lock.yml`
-
-Runs on all PRs to `main` and `development`:
-- Scans .NET dependencies for known vulnerabilities
-- Generates compliance report and SBOM comparison
-- Blocks merge if critical vulnerabilities detected
-- Required before any production deployment
+Dependency vulnerability scanning is handled by the CycloneDX SBOM generated during the build job. The SBOM (`artifacts/sbom/bom.json`) contains the full component inventory and can be submitted to vulnerability databases (e.g., OWASP Dependency-Track) for analysis. CodeQL (`sast-codeql.yml`) provides additional static analysis coverage on every PR.
 
 ## Future Enhancements
 
@@ -710,9 +709,17 @@ Runs on all PRs to `main` and `development`:
 
 ---
 
-## Recent Changes (v2.0)
+## Recent Changes (v2.1)
 
-**June 7, 2026** — Enhanced SLSA Level 3 supply chain controls:
+**June 7, 2026** — Migrated cosign output format from `--output-signature` to `--bundle`:
+
+- Cosign deprecated `--output-signature` / `--new-bundle-format` is now default
+- All signing calls use `--bundle <file>.bundle` (self-contained JSON envelope)
+- All verification calls use `--bundle` instead of `--signature`
+- Artifact files renamed from `*.sig` to `*.bundle` throughout pipeline
+- Removed process substitution `<(echo -n ...)` from verify step — files verified directly
+
+**June 7, 2026** — Enhanced SLSA Level 3 supply chain controls (v2.0):
 
 - Added artifact digest signing (not just SBOM/provenance)
 - Bound SLSA provenance to actual deployed artifact
@@ -722,7 +729,6 @@ Runs on all PRs to `main` and `development`:
 - Added explicit OIDC permissions to build job (`id-token: write`)
 - Fixed artifact digest calculation to use `find` instead of invalid `-r` flag
 - Added shell injection protection to rollback workflow
-- Restored CODEOWNERS and dependency compliance workflow
 - Updated provenance structure to attest to correct artifact
 
 **Maintained by:** DevOps Team  
