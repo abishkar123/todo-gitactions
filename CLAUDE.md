@@ -152,11 +152,14 @@ This calls the same hook entrypoint and behaves identically.
 
 ## GitHub Actions Workflows
 
-The repository includes automated workflows that run on pull requests and pushes to `main`/`development`:
+| Workflow | Trigger | Purpose |
+|---|---|---|
+| `dotnet-build-and-test.yml` | PRs + push to `main`/`development` | Restore, build (Release), run all `*Tests.csproj` |
+| `sast-codeql.yml` | PRs + push to `main`, weekly | CodeQL C# security analysis |
+| `cd-bidirectional.yml` | Push to `development` | Full supply-chain build + deploy to dev App Service |
+| `cd-bidirectional-rollback.yml` | Manual (`workflow_dispatch`) | Swap staging ↔ production slot for rollback |
 
-- **dotnet-build-and-test.yml**: Restores, builds all solutions in Release mode, and runs all `*Tests.csproj` test projects
-- **sast-codeql.yml**: CodeQL security analysis
-- Additional workflows for dependency compliance and .NET alignment reports
+Detailed pipeline architecture: [`docs/CI-CD-PIPELINE.md`](docs/CI-CD-PIPELINE.md)
 
 ## Project Structure Notes
 
@@ -165,11 +168,9 @@ The repository includes automated workflows that run on pull requests and pushes
 - **If a secret has ever been committed**: Rotate it even after removing it from the working tree
 - **No secrets in code**: Configuration values must come from environment variables or user secrets, not hardcoded
 
-## Claude Code Status Line
+## Tenant Manifests
 
-A terminal status line script that prints model, cost, context usage, and git branch after each response.
-
-See [`scripts/claude-statusline.md`](scripts/claude-statusline.md) for the full script and setup instructions.
+`.platform/tenants/{env}/{tenant}.yml` is validated at the start of every deployment. The pipeline reads `tenantId` and `environment` from the manifest and fails if they don't match expected values. Each manifest also declares which supply-chain controls are required (`requireSignedArtifact`, `requireSbom`, `requireProvenance`, `requirePolicyValidation`).
 
 ## Notes for Future Work
 
@@ -247,7 +248,7 @@ Every artifact touching tenant context must enforce boundaries across: identity,
 
 **Identity:** OIDC only. Per-tenant GitHub Environments with scoped OIDC subjects. Per-tenant workload identities with least-privilege RBAC. No shared production service principals across tenants.
 
-**Supply chain:** CycloneDX SBOM + Cosign keyless signing + SLSA Level 3 provenance required on every production artifact. Missing any one = build blocked.
+**Supply chain:** CycloneDX SBOM + Cosign keyless signing + SLSA Level 3 provenance required on every production artifact. Missing any one = build blocked. Cosign outputs `.bundle` files (not `.sig`) — use `--bundle` flag for both signing and verification.
 
 **Policy-as-code:** Azure Policy initiative enforced at pipeline gate. Effect is `Deny` in production. Gate fails closed — if policy scan is unavailable, the gate fails.
 
