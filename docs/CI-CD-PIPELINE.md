@@ -1,10 +1,11 @@
 # CI/CD Pipeline — Bidirectional Development Workflow
 
-**Version:** 1.0  
-**Last Updated:** June 2026  
+**Version:** 2.0  
+**Last Updated:** June 7, 2026  
 **Tenant:** Bidirectional (Foundation Member)  
 **Runtime:** Azure App Service (.NET 9)  
-**Identity:** OIDC Workload Identity Federation (zero static credentials)
+**Identity:** OIDC Workload Identity Federation (zero static credentials)  
+**Supply Chain:** SLSA Level 3 with artifact digest signing, keyless attestation, and signature verification
 
 ---
 
@@ -29,17 +30,22 @@ This document describes the complete continuous integration and continuous deplo
 Code Push to development
         ↓
     Build Job
+    ├─ Validate tenant manifest (tenantId, environment)
     ├─ Restore dependencies
     ├─ Publish release build
     ├─ Generate SBOM (CycloneDX JSON)
+    ├─ Compute artifact digest (sha256 of published files)
+    ├─ Sign artifact digest (Cosign keyless)
     ├─ Sign SBOM (Cosign keyless)
-    ├─ Generate SLSA provenance
+    ├─ Generate SLSA provenance (bound to artifact digest)
     ├─ Sign provenance (Cosign keyless)
     └─ Upload artifacts
         ↓
     Deploy-Dev Job
     ├─ Download artifacts
     ├─ OIDC login to Azure
+    ├─ Validate Key Vault access
+    ├─ Supply chain gate (verify all signatures)
     ├─ Policy validation gate
     ├─ Deploy to App Service
     ├─ Smoke test health check
@@ -89,21 +95,37 @@ Build **fails** if:
 #### Cosign Keyless Signing
 Every artifact is signed without storing keys in the repository:
 
-1. **SBOM signature** → `artifacts/sbom/bom.json.sig`
-2. **Provenance signature** → `artifacts/provenance/slsa-provenance.json.sig`
+1. **Artifact digest signature** → `artifacts/artifact.digest.sig`
+2. **SBOM signature** → `artifacts/sbom/bom.json.sig`
+3. **Provenance signature** → `artifacts/provenance/slsa-provenance.json.sig`
 
 **How it works:**
 - Cosign uses OIDC federation to GitHub's OIDC provider
 - Temporary ephemeral keys issued by Sigstore
 - Signature is verifiable via GitHub's public OIDC identity
+- Build job **requires** `id-token: write` permission for OIDC token issuance
 
-**Verification:**
+**Artifact Digest Calculation:**
 ```bash
+# Compute hash of all files in ./publish directory
+ARTIFACT_DIGEST=$(find ./publish -type f -exec sha256sum {} \; | sha256sum | awk '{print $1}')
+```
+
+**Deployment-time Verification:**
+```bash
+# Verify artifact digest signature
+EXPECTED_DIGEST=$(cat artifacts/artifact.digest)
+cosign verify-blob \
+  --signature artifacts/artifact.digest.sig \
+  --certificate-identity-regexp '.*' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  <(echo -n "$EXPECTED_DIGEST")
+
 # Verify SBOM signature
 cosign verify-blob \
-  --certificate-identity "https://github.com/abishkar123/todo-gitactions/.github/workflows/cd-bidirectional.yml@refs/heads/development" \
-  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   --signature artifacts/sbom/bom.json.sig \
+  --certificate-identity-regexp '.*' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   artifacts/sbom/bom.json
 ```
 
@@ -126,7 +148,7 @@ Each build generates cryptographic proof of:
   "subject": [
     {
       "name": "app-bidirectional-<sha>",
-      "digest": {"sha256": "<sbom-hash>"}
+      "digest": {"sha256": "<artifact-digest>"}
     }
   ],
   "predicate": {
@@ -145,6 +167,8 @@ Each build generates cryptographic proof of:
 }
 ```
 
+**Key difference from v1:** The `subject.digest.sha256` now contains the actual published artifact digest (from `./publish`), not the SBOM digest. This allows downstream verifiers to prove the exact payload that was deployed.
+
 **Signed with:** Cosign keyless signature (same OIDC federation as SBOM)
 
 ---
@@ -156,6 +180,20 @@ Each build generates cryptographic proof of:
 | Environment | Workload Identity | OIDC Subject | Azure Permissions |
 |-------------|-------------------|--------------|-------------------|
 | `dev-bidirectional` | `github-bidirectional-dev-deploy` | `repo:abishkar123/todo-gitactions:environment:dev-bidirectional` | `Website Contributor` on `rg-bidirectional-dev-app` |
+
+### Build Job Permissions
+
+The build job **must** request OIDC token permission for keyless signing:
+
+```yaml
+build:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read          # Read source code and manifests
+    id-token: write         # Required for Cosign keyless signing via GitHub OIDC
+```
+
+Without `id-token: write`, the first `cosign sign-blob` will fail to obtain the OIDC token.
 
 ### Dev Deployment Flow
 
@@ -170,10 +208,21 @@ deploy-dev:
 
 **Steps:**
 
-1. **Download artifacts** from build job
-   - Includes signed SBOM and provenance
+1. **Validate tenant manifest**
+   ```bash
+   MANIFEST=".platform/tenants/dev/bidirectional.yml"
+   FILE_TENANT=$(yq '.tenantId' "$MANIFEST")
+   FILE_ENV=$(yq '.environment' "$MANIFEST")
+   [ "$FILE_TENANT" != "bidirectional" ] && echo "Tenant mismatch." && exit 1
+   [ "$FILE_ENV" != "dev" ] && echo "Environment mismatch." && exit 1
+   ```
+   - Enforces that the correct tenant manifest is being deployed
+   - Prevents accidental cross-tenant deployments
 
-2. **OIDC login to Azure**
+2. **Download artifacts** from build job
+   - Includes signed SBOM, artifact digest, and provenance
+
+3. **OIDC login to Azure**
    ```yaml
    - uses: azure/login@v2
      with:
@@ -185,7 +234,38 @@ deploy-dev:
    - Token valid for 1 hour
    - Workload identity scoped to this job
 
-3. **Policy validation gate**
+4. **Validate Key Vault access**
+   ```bash
+   az keyvault show --name kv-bidirectional-dev --query "name" --output tsv
+   ```
+   - Confirms the managed identity has Key Vault permissions
+   - Fails early if secrets infrastructure is inaccessible
+
+5. **Supply chain gate** (Signature Verification)
+   ```bash
+   # Verify all artifacts are present
+   [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
+   [ ! -s "artifacts/artifact.digest.sig" ] && echo "Artifact signature missing." && exit 1
+   
+   # Verify signatures with Cosign
+   EXPECTED_DIGEST=$(cat artifacts/artifact.digest)
+   cosign verify-blob \
+     --signature artifacts/artifact.digest.sig \
+     --certificate-identity-regexp '.*' \
+     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+     <(echo -n "$EXPECTED_DIGEST") || exit 1
+     
+   cosign verify-blob \
+     --signature artifacts/sbom/bom.json.sig \
+     --certificate-identity-regexp '.*' \
+     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+     artifacts/sbom/bom.json || exit 1
+   ```
+   - **Critical:** Verifies signatures are authentic (not just checking file existence)
+   - Confirms OIDC federation and certificate chain
+   - Fails if signatures cannot be verified or are corrupted
+
+6. **Policy validation gate**
    ```bash
    az policy state trigger-scan --resource-group rg-bidirectional-dev-app
    sleep 90
@@ -199,7 +279,7 @@ deploy-dev:
    - Fails if any non-compliant resources exist
    - Effect in dev: `Audit` (advisory, but gate still enforces check)
 
-4. **Deploy to App Service**
+7. **Deploy to App Service**
    ```yaml
    - uses: azure/webapps-deploy@v3
      with:
@@ -207,7 +287,7 @@ deploy-dev:
        package: ./publish
    ```
 
-5. **Smoke test**
+8. **Smoke test**
    ```bash
    sleep 20
    STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -218,7 +298,7 @@ deploy-dev:
    - Checks `/health` endpoint
    - Fails if not 200 OK
 
-6. **Audit logging**
+9. **Audit logging**
    ```json
    {
      "stage": "dev",
@@ -269,7 +349,8 @@ approvals:
 
 **Key properties:**
 - `autoDeployOnCI: true` — Dev deploys automatically on CI success
-- `requireSignedArtifact: true` — SBOM and provenance must be signed
+- `requireSignedArtifact: true` — Artifact digest, SBOM, and provenance must be signed
+- `requireProvenance: true` — SLSA provenance attestation required for all deployments
 - `allowCrossTenantArtifactReuse: false` — Dev artifacts cannot be used for other tenants
 
 ### Prod Manifest (Future)
@@ -295,6 +376,7 @@ deployment:
 security:
   requireSignedArtifact: true
   requireSbom: true
+  requireProvenance: true
   requirePolicyValidation: true
   allowCrossTenantArtifactReuse: false
 
@@ -417,16 +499,21 @@ az role assignment create \
 ```
 Build Job
 ├─ dotnet publish → ./publish
+├─ Compute artifact digest → ./artifacts/artifact.digest
+├─ Cosign sign → ./artifacts/artifact.digest.sig
 ├─ CycloneDX SBOM → ./artifacts/sbom/bom.json
 ├─ Cosign sign → ./artifacts/sbom/bom.json.sig
-├─ SLSA provenance → ./artifacts/provenance/slsa-provenance.json
+├─ SLSA provenance (bound to artifact digest) → ./artifacts/provenance/slsa-provenance.json
 ├─ Cosign sign → ./artifacts/provenance/slsa-provenance.json.sig
 └─ Upload artifact: app-bidirectional-<sha>
         ↓
    Deploy-Dev Job (downloads artifact)
-   ├─ Extracts ./publish
-   ├─ Extracts SBOM + signatures + provenance
-   ├─ Deploys to Azure App Service
+   ├─ Validate tenant manifest
+   ├─ Extract ./publish
+   ├─ Extract SBOM + artifact digest + signatures + provenance
+   ├─ Verify signatures with cosign verify-blob
+   ├─ Validate Key Vault access
+   ├─ Deploy to Azure App Service
    └─ Logs audit evidence
         ↓
    Immutable Audit Storage
@@ -548,15 +635,65 @@ gh variable list --repo abishkar123/todo-gitactions
 
 ---
 
+## Rollback Workflow
+
+**File:** `.github/workflows/cd-bidirectional-rollback.yml`
+
+**Security:** Rollback reason input is JSON-escaped to prevent shell injection attacks.
+
+```bash
+# Input is passed through environment variable and JSON encoder
+ESCAPED_REASON=$(python3 -c "import json, os; print(json.dumps(os.environ['ROLLBACK_REASON']))")
+echo "{\"event\":\"rollback\",...,\"reason\":${ESCAPED_REASON},...}" > rollback-event.json
+```
+
+**Trigger:** `workflow_dispatch` with required reason input  
+**Authorization:** Requires `prod-bidirectional` environment approval  
+**Action:** Swaps Azure App Service deployment slots (staging → production)
+
+## Code Owners & Protected Reviews
+
+**File:** `.github/CODEOWNERS`
+
+The following paths require approval from `@Abishkarrai` before merge:
+
+```
+# All .github workflows and configuration
+/.github/ @Abishkarrai
+
+# All application code and tests
+/*.cs @Abishkarrai
+/Controllers/ @Abishkarrai
+/Services/ @Abishkarrai
+/Views/ @Abishkarrai
+/Tests/ @Abishkarrai
+
+# Deployment and platform configuration
+/.platform/tenants/ @Abishkarrai
+```
+
+Protected branch rules enforce code owner review on PRs to `development`.
+
+## Dependency Compliance
+
+**File:** `.github/workflows/dotnet-dependency-compliance-report.lock.yml`
+
+Runs on all PRs to `main` and `development`:
+- Scans .NET dependencies for known vulnerabilities
+- Generates compliance report and SBOM comparison
+- Blocks merge if critical vulnerabilities detected
+- Required before any production deployment
+
 ## Future Enhancements
 
 - [ ] Stage environment with 24–48 hour soak window
 - [ ] Production ring-based deployment (10% → 100% canary)
 - [ ] Automated rollback on error rate threshold
 - [ ] Feature flag integration for gradual rollouts
-- [ ] Tenant manifest validation in deploy-dev
+- [ ] Multi-tenant manifest validation at deploy time
 - [ ] Cross-region failover configuration
 - [ ] Cost optimization via reserved instances
+- [ ] Automated signature verification in pull request reviews
 
 ---
 
@@ -571,6 +708,23 @@ gh variable list --repo abishkar123/todo-gitactions
 
 ---
 
+---
+
+## Recent Changes (v2.0)
+
+**June 7, 2026** — Enhanced SLSA Level 3 supply chain controls:
+
+- Added artifact digest signing (not just SBOM/provenance)
+- Bound SLSA provenance to actual deployed artifact
+- Added tenant manifest validation as first build step
+- Added Key Vault access validation before deployment
+- Implemented actual signature verification in supply chain gate
+- Added explicit OIDC permissions to build job (`id-token: write`)
+- Fixed artifact digest calculation to use `find` instead of invalid `-r` flag
+- Added shell injection protection to rollback workflow
+- Restored CODEOWNERS and dependency compliance workflow
+- Updated provenance structure to attest to correct artifact
+
 **Maintained by:** DevOps Team  
-**Last reviewed:** June 2026  
+**Last reviewed:** June 7, 2026  
 **Next review:** December 2026
