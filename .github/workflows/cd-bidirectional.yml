@@ -1,0 +1,196 @@
+name: CD — Bidirectional Dev, Azure App Service
+
+on:
+  push:
+    branches:
+      - development
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: validate-tenant-manifest
+        run: |
+          MANIFEST=".platform/tenants/dev/bidirectional.yml"
+          [ ! -f "$MANIFEST" ] && echo "Tenant manifest not found." && exit 1
+          FILE_TENANT=$(yq '.tenantId' "$MANIFEST")
+          FILE_ENV=$(yq '.environment' "$MANIFEST")
+          [ "$FILE_TENANT" != "bidirectional" ] && echo "Tenant mismatch." && exit 1
+          [ "$FILE_ENV" != "dev" ] && echo "Environment mismatch." && exit 1
+          echo "Manifest validated: $FILE_TENANT / $FILE_ENV"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - run: dotnet restore
+
+      - run: dotnet publish --configuration Release --output ./publish
+
+      - name: generate-sbom
+        run: |
+          dotnet tool install --global CycloneDX
+          dotnet CycloneDX . --output ./artifacts/sbom --json
+          [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
+
+      - name: install-cosign
+        run: |
+          curl -sLO https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64
+          sudo install cosign-linux-amd64 /usr/local/bin/cosign
+
+      - name: sign-artifact
+        run: |
+          mkdir -p artifacts
+          ARTIFACT_DIGEST=$(find ./publish -type f -exec sha256sum {} \; | sha256sum | awk '{print $1}')
+          echo "$ARTIFACT_DIGEST" > artifacts/artifact.digest
+          cosign sign-blob \
+            --yes \
+            artifacts/artifact.digest \
+            > artifacts/artifact.digest.sig
+          cosign sign-blob \
+            --yes \
+            artifacts/sbom/bom.json \
+            > artifacts/sbom/bom.json.sig
+
+      - name: generate-slsa-provenance
+        run: |
+          mkdir -p artifacts/provenance
+          ARTIFACT_DIGEST=$(cat artifacts/artifact.digest)
+          echo "{
+            \"_type\": \"https://in-toto.io/Statement/v0.1\",
+            \"predicateType\": \"https://slsa.dev/provenance/v0.2\",
+            \"subject\": [{
+              \"name\": \"app-bidirectional-${{ github.sha }}\",
+              \"digest\": {
+                \"sha256\": \"$ARTIFACT_DIGEST\"
+              }
+            }],
+            \"predicate\": {
+              \"builder\": {
+                \"id\": \"https://github.com/actions/runner\"
+              },
+              \"buildType\": \"https://github.com/slsa-framework/slsa-github-generator\",
+              \"invocation\": {
+                \"configSource\": {
+                  \"uri\": \"git+https://github.com/${{ github.repository }}@${{ github.ref }}\",
+                  \"digest\": {
+                    \"sha256\": \"${{ github.sha }}\"
+                  }
+                }
+              },
+              \"materials\": [],
+              \"metadata\": {
+                \"buildInvocationId\": \"${{ github.run_id }}\",
+                \"completeness\": {
+                  \"parameters\": true,
+                  \"environment\": true,
+                  \"materials\": true
+                },
+                \"reproducible\": false
+              }
+            }
+          }" > artifacts/provenance/slsa-provenance.json
+
+      - name: cosign-keyless-sign-provenance
+        run: |
+          cosign sign-blob \
+            --yes \
+            artifacts/provenance/slsa-provenance.json \
+            > artifacts/provenance/slsa-provenance.json.sig
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-bidirectional-${{ github.sha }}
+          path: |
+            ./publish
+            ./artifacts/sbom/bom.json
+            ./artifacts/sbom/bom.json.sig
+            ./artifacts/artifact.digest
+            ./artifacts/artifact.digest.sig
+            ./artifacts/provenance/slsa-provenance.json
+            ./artifacts/provenance/slsa-provenance.json.sig
+
+  deploy-dev:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev-bidirectional
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-bidirectional-${{ github.sha }}
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_DEV }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID_DEV }}
+
+      - name: validate-keyvault-access
+        run: |
+          az keyvault show --name kv-bidirectional-dev --query "name" --output tsv \
+            || { echo "Key Vault access failed." && exit 1; }
+          echo "Key Vault access confirmed: kv-bidirectional-dev"
+
+      - name: supply-chain-gate
+        run: |
+          [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
+          [ ! -s "artifacts/sbom/bom.json.sig" ] && echo "SBOM signature missing." && exit 1
+          [ ! -s "artifacts/artifact.digest" ] && echo "Artifact digest missing." && exit 1
+          [ ! -s "artifacts/artifact.digest.sig" ] && echo "Artifact signature missing." && exit 1
+          [ ! -s "artifacts/provenance/slsa-provenance.json" ] && echo "Provenance missing." && exit 1
+          [ ! -s "artifacts/provenance/slsa-provenance.json.sig" ] && echo "Provenance signature missing." && exit 1
+          EXPECTED_DIGEST=$(cat artifacts/artifact.digest)
+          cosign verify-blob \
+            --signature artifacts/artifact.digest.sig \
+            --certificate-identity-regexp '.*' \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            <(echo -n "$EXPECTED_DIGEST") || { echo "Artifact signature verification failed." && exit 1; }
+          cosign verify-blob \
+            --signature artifacts/sbom/bom.json.sig \
+            --certificate-identity-regexp '.*' \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            artifacts/sbom/bom.json || { echo "SBOM signature verification failed." && exit 1; }
+          echo "Supply chain gate passed."
+
+      - name: policy-gate
+        run: |
+          az policy state trigger-scan --resource-group rg-bidirectional-dev-app
+          sleep 90
+          NON_COMPLIANT=$(az policy state list \
+            --resource-group rg-bidirectional-dev-app \
+            --query "[?complianceState=='NonCompliant'] | length(@)" \
+            --output tsv)
+          NON_COMPLIANT=${NON_COMPLIANT:-0}
+          [ "$NON_COMPLIANT" -gt 0 ] && exit 1
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: app-bidirectional-dev-api
+          package: ./publish
+
+      - name: smoke-test
+        run: |
+          sleep 20
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            https://app-bidirectional-dev-api.azurewebsites.net/health)
+          [ "$STATUS" != "200" ] && echo "Health check failed." && exit 1
+
+      - name: write-audit-evidence
+        run: |
+          mkdir -p evidence
+          echo "{\"stage\":\"dev\",\"sha\":\"${{ github.sha }}\",\"run\":\"${{ github.run_id }}\",\"result\":\"success\"}" \
+            > evidence/deploy-dev.json
+          az storage blob upload \
+            --account-name stbidirectionalaudit \
+            --container-name release-audit \
+            --name "bidirectional/dev/${{ github.run_id }}/deploy-dev-${{ github.sha }}.json" \
+            --file evidence/deploy-dev.json \
+            --auth-mode login

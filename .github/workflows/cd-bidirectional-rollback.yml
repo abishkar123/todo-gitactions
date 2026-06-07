@@ -1,0 +1,45 @@
+name: Rollback — Bidirectional Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for rollback'
+        required: true
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: prod-bidirectional
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_PROD }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID_PROD }}
+
+      - uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            az webapp deployment slot swap \
+              --name app-bidirectional-prod-api \
+              --resource-group rg-bidirectional-prod-app \
+              --slot staging \
+              --target-slot production
+
+      - name: log-rollback-event
+        env:
+          ROLLBACK_REASON: ${{ github.event.inputs.reason }}
+        run: |
+          ESCAPED_REASON=$(python3 -c "import json, os; print(json.dumps(os.environ['ROLLBACK_REASON']))")
+          echo "{\"event\":\"rollback\",\"actor\":\"${{ github.actor }}\",\"reason\":${ESCAPED_REASON},\"run\":\"${{ github.run_id }}\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+            > rollback-event.json
+          az storage blob upload \
+            --account-name stbidirectionalaudit \
+            --container-name release-audit \
+            --name "bidirectional/prod/rollbacks/rollback-${{ github.run_id }}.json" \
+            --file rollback-event.json \
+            --auth-mode login
