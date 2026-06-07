@@ -52,11 +52,11 @@ jobs:
           echo -n "$ARTIFACT_DIGEST" > artifacts/artifact.digest
           cosign sign-blob \
             --yes \
-            --output-signature artifacts/artifact.digest.sig \
+            --bundle artifacts/artifact.digest.bundle \
             artifacts/artifact.digest
           cosign sign-blob \
             --yes \
-            --output-signature artifacts/sbom/bom.json.sig \
+            --bundle artifacts/sbom/bom.json.bundle \
             artifacts/sbom/bom.json
 
       - name: generate-slsa-provenance
@@ -102,8 +102,8 @@ jobs:
         run: |
           cosign sign-blob \
             --yes \
-            artifacts/provenance/slsa-provenance.json \
-            > artifacts/provenance/slsa-provenance.json.sig
+            --bundle artifacts/provenance/slsa-provenance.json.bundle \
+            artifacts/provenance/slsa-provenance.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -111,11 +111,11 @@ jobs:
           path: |
             ./publish
             ./artifacts/sbom/bom.json
-            ./artifacts/sbom/bom.json.sig
+            ./artifacts/sbom/bom.json.bundle
             ./artifacts/artifact.digest
-            ./artifacts/artifact.digest.sig
+            ./artifacts/artifact.digest.bundle
             ./artifacts/provenance/slsa-provenance.json
-            ./artifacts/provenance/slsa-provenance.json.sig
+            ./artifacts/provenance/slsa-provenance.json.bundle
 
   deploy-dev:
     needs: build
@@ -144,19 +144,18 @@ jobs:
       - name: supply-chain-gate
         run: |
           [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
-          [ ! -s "artifacts/sbom/bom.json.sig" ] && echo "SBOM signature missing." && exit 1
+          [ ! -s "artifacts/sbom/bom.json.bundle" ] && echo "SBOM bundle missing." && exit 1
           [ ! -s "artifacts/artifact.digest" ] && echo "Artifact digest missing." && exit 1
-          [ ! -s "artifacts/artifact.digest.sig" ] && echo "Artifact signature missing." && exit 1
+          [ ! -s "artifacts/artifact.digest.bundle" ] && echo "Artifact bundle missing." && exit 1
           [ ! -s "artifacts/provenance/slsa-provenance.json" ] && echo "Provenance missing." && exit 1
-          [ ! -s "artifacts/provenance/slsa-provenance.json.sig" ] && echo "Provenance signature missing." && exit 1
-          EXPECTED_DIGEST=$(cat artifacts/artifact.digest)
+          [ ! -s "artifacts/provenance/slsa-provenance.json.bundle" ] && echo "Provenance bundle missing." && exit 1
           cosign verify-blob \
-            --signature artifacts/artifact.digest.sig \
+            --bundle artifacts/artifact.digest.bundle \
             --certificate-identity-regexp '.*' \
             --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-            <(echo -n "$EXPECTED_DIGEST") || { echo "Artifact signature verification failed." && exit 1; }
+            artifacts/artifact.digest || { echo "Artifact signature verification failed." && exit 1; }
           cosign verify-blob \
-            --signature artifacts/sbom/bom.json.sig \
+            --bundle artifacts/sbom/bom.json.bundle \
             --certificate-identity-regexp '.*' \
             --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
             artifacts/sbom/bom.json || { echo "SBOM signature verification failed." && exit 1; }
