@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "Verify that all tasks in the current session have been completed. Check the task list for any 'pending' status items. If all tasks are 'in_progress' or 'completed', respond with 'All tasks complete'. If there are 'pending' tasks, list them and explain what needs to be done. Respond with 'REQUEST INCOMPLETE' if work remains.",
+            "timeout": 30,
+            "statusMessage": "Checking if request is fully fulfilled..."
+          }
+        ]
+      }
+    ]
+  }
+}
