@@ -1,0 +1,24 @@
+tenantId: bidirectional
+environment: dev
+
+azure:
+  subscriptionId: "00000000-0000-0000-0000-000000000002"
+  resourceGroups:
+    app: rg-bidirectional-dev-app
+    data: rg-bidirectional-dev-data
+  keyVault: kv-bidirectional-dev
+  logAnalytics: law-bidirectional-dev
+
+deployment:
+  appServiceName: app-bidirectional-dev-api
+  ring: dev
+
+security:
+  requireSignedArtifact: true
+  requireSbom: true
+  requirePolicyValidation: true
+  allowCrossTenantArtifactReuse: false
+
+approvals:
+  requiredForProd: false
+  autoDeployOnCI: true
