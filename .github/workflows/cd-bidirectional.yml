@@ -1,0 +1,86 @@
+name: CD — Bidirectional Dev, Azure App Service
+
+on:
+  push:
+    branches:
+      - development
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - run: dotnet restore
+
+      - run: dotnet publish --configuration Release --output ./publish
+
+      - name: generate-sbom
+        run: |
+          dotnet tool install --global CycloneDX
+          dotnet CycloneDX . --output ./artifacts/sbom --json
+          [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-bidirectional-${{ github.sha }}
+          path: |
+            ./publish
+            ./artifacts/sbom/bom.json
+
+  deploy-dev:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev-bidirectional
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-bidirectional-${{ github.sha }}
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_DEV }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID_DEV }}
+
+      - name: policy-gate
+        run: |
+          az policy state trigger-scan --resource-group rg-bidirectional-dev-app
+          sleep 90
+          NON_COMPLIANT=$(az policy state list \
+            --resource-group rg-bidirectional-dev-app \
+            --query "[?complianceState=='NonCompliant'] | length(@)" \
+            --output tsv)
+          NON_COMPLIANT=${NON_COMPLIANT:-0}
+          [ "$NON_COMPLIANT" -gt 0 ] && exit 1
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: app-bidirectional-dev-api
+          package: ./publish
+
+      - name: smoke-test
+        run: |
+          sleep 20
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            https://app-bidirectional-dev-api.azurewebsites.net/health)
+          [ "$STATUS" != "200" ] && echo "Health check failed." && exit 1
+
+      - name: write-audit-evidence
+        run: |
+          mkdir -p evidence
+          echo "{\"stage\":\"dev\",\"sha\":\"${{ github.sha }}\",\"run\":\"${{ github.run_id }}\",\"result\":\"success\"}" \
+            > evidence/deploy-dev.json
+          az storage blob upload \
+            --account-name stbidirectionalaudit \
+            --container-name release-audit \
+            --name "bidirectional/dev/${{ github.run_id }}/deploy-dev-${{ github.sha }}.json" \
+            --file evidence/deploy-dev.json \
+            --auth-mode login

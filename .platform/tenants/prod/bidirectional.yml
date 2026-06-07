@@ -1,0 +1,24 @@
+tenantId: bidirectional
+environment: prod
+
+azure:
+  subscriptionId: "00000000-0000-0000-0000-000000000001"
+  resourceGroups:
+    app: rg-bidirectional-prod-app
+    data: rg-bidirectional-prod-data
+  keyVault: kv-bidirectional-prod
+  logAnalytics: law-bidirectional-prod
+
+deployment:
+  appServiceName: app-bidirectional-prod-api
+  ring: ring-1
+
+security:
+  requireSignedArtifact: true
+  requireSbom: true
+  requirePolicyValidation: true
+  allowCrossTenantArtifactReuse: false
+
+approvals:
+  requiredForProd: true
+  approversGroup: entra-bidirectional-prod-approvers
