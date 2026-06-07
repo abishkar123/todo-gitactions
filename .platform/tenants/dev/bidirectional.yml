@@ -16,6 +16,7 @@ deployment:
 security:
   requireSignedArtifact: true
   requireSbom: true
+  requireProvenance: true
   requirePolicyValidation: true
   allowCrossTenantArtifactReuse: false
 
