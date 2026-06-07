@@ -37,6 +37,10 @@
                 </div>
             </div>
             <p class="hero-card__aside-copy">The dashboard reflects persisted task state from MongoDB, so this view stays aligned with the real project backlog.</p>
+            <div class="hero-card__note">
+                <span class="hero-card__note-label">Today</span>
+                <span class="hero-card__note-copy">Review open items first, then trim completed work from the list.</span>
+            </div>
         </div>
     </section>
 
@@ -86,11 +90,11 @@
                 </article>
             </div>
 
-            <div class="panel-heading panel-heading--list">
-                <div>
-                    <span class="panel-kicker">Backlog</span>
-                    <h2 class="panel-title">Task board</h2>
-                </div>
+                <div class="panel-heading panel-heading--list">
+                    <div>
+                        <span class="panel-kicker">Backlog</span>
+                        <h2 class="panel-title">Task board</h2>
+                    </div>
                 <p class="panel-copy mb-0">Review, complete, or refine work items without leaving the dashboard.</p>
             </div>
 
@@ -109,6 +113,7 @@
                         var statusClass = item.IsCompleted ? "status-pill status-pill--done" : "status-pill status-pill--open";
                         var cardClass = item.IsCompleted ? "task-card task-card--completed" : "task-card";
                         var toggleLabel = item.IsCompleted ? "Reopen" : "Complete";
+                        var toggleActionClass = item.IsCompleted ? "task-action task-action--secondary" : "task-action task-action--primary";
 
                         <article class="@cardClass">
                             <div class="task-card__content">
@@ -127,7 +132,7 @@
 
                                 <form asp-action="ToggleCompleted" method="post">
                                     <input type="hidden" name="id" value="@item.Id" />
-                                    <button type="submit" class="task-action">@toggleLabel</button>
+                                    <button type="submit" class="@toggleActionClass">@toggleLabel</button>
                                 </form>
 
                                 <form asp-action="Delete" method="post">
