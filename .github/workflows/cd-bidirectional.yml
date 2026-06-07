@@ -34,6 +34,7 @@ jobs:
 
       - name: generate-sbom
         run: |
+          mkdir -p artifacts/sbom
           dotnet tool install --global CycloneDX
           dotnet CycloneDX TodoList.csproj --output ./artifacts/sbom --json
           [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
