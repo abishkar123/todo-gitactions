@@ -47,14 +47,17 @@ jobs:
 
       - name: sign-artifact
         run: |
-          mkdir -p artifacts
+          mkdir -p artifacts/sbom artifacts/provenance
           ARTIFACT_DIGEST=$(find ./publish -type f -exec sha256sum {} \; | sha256sum | awk '{print $1}')
           echo -n "$ARTIFACT_DIGEST" > artifacts/artifact.digest
-          echo -n "$ARTIFACT_DIGEST" | cosign sign-blob --yes - > artifacts/artifact.digest.sig
           cosign sign-blob \
             --yes \
-            --input-file artifacts/sbom/bom.json \
-            > artifacts/sbom/bom.json.sig
+            --output-signature artifacts/artifact.digest.sig \
+            artifacts/artifact.digest
+          cosign sign-blob \
+            --yes \
+            --output-signature artifacts/sbom/bom.json.sig \
+            artifacts/sbom/bom.json
 
       - name: generate-slsa-provenance
         run: |
