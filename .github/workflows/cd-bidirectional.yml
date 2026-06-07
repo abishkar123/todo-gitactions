@@ -25,12 +25,72 @@ jobs:
           dotnet CycloneDX . --output ./artifacts/sbom --json
           [ ! -s "artifacts/sbom/bom.json" ] && echo "SBOM missing." && exit 1
 
+      - name: install-cosign
+        run: |
+          curl -sLO https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64
+          sudo install cosign-linux-amd64 /usr/local/bin/cosign
+
+      - name: cosign-keyless-sign-sbom
+        run: |
+          cosign sign-blob \
+            --yes \
+            artifacts/sbom/bom.json \
+            > artifacts/sbom/bom.json.sig
+
+      - name: generate-slsa-provenance
+        run: |
+          mkdir -p artifacts/provenance
+          echo "{
+            \"_type\": \"https://in-toto.io/Statement/v0.1\",
+            \"predicateType\": \"https://slsa.dev/provenance/v0.2\",
+            \"subject\": [{
+              \"name\": \"app-bidirectional-${{ github.sha }}\",
+              \"digest\": {
+                \"sha256\": \"$(sha256sum ./artifacts/sbom/bom.json | awk '{print $1}')\"
+              }
+            }],
+            \"predicate\": {
+              \"builder\": {
+                \"id\": \"https://github.com/actions/runner\"
+              },
+              \"buildType\": \"https://github.com/slsa-framework/slsa-github-generator\",
+              \"invocation\": {
+                \"configSource\": {
+                  \"uri\": \"git+https://github.com/${{ github.repository }}@${{ github.ref }}\",
+                  \"digest\": {
+                    \"sha256\": \"${{ github.sha }}\"
+                  }
+                }
+              },
+              \"materials\": [],
+              \"metadata\": {
+                \"buildInvocationId\": \"${{ github.run_id }}\",
+                \"completeness\": {
+                  \"parameters\": true,
+                  \"environment\": true,
+                  \"materials\": true
+                },
+                \"reproducible\": false
+              }
+            }
+          }" > artifacts/provenance/slsa-provenance.json
+
+      - name: cosign-keyless-sign-provenance
+        run: |
+          cosign sign-blob \
+            --yes \
+            artifacts/provenance/slsa-provenance.json \
+            > artifacts/provenance/slsa-provenance.json.sig
+
       - uses: actions/upload-artifact@v4
         with:
           name: app-bidirectional-${{ github.sha }}
           path: |
             ./publish
             ./artifacts/sbom/bom.json
+            ./artifacts/sbom/bom.json.sig
+            ./artifacts/provenance/slsa-provenance.json
+            ./artifacts/provenance/slsa-provenance.json.sig
 
   deploy-dev:
     needs: build
